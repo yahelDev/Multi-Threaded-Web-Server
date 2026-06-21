@@ -1,84 +1,123 @@
-import socket
 import os
+import socket
 
-HOST = '0.0.0.0'
-PORT = 8080
-BUFFER_SIZE = 4096
-STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+from config import (
+    BUFFER_SIZE,
+    CONTENT_TYPES,
+    DEFAULT_CONTENT_TYPE,
+    DEFAULT_PAGE,
+    HOST,
+    HTTP_VERSION,
+    PORT,
+    STATIC_DIR,
+)
 
-CONTENT_TYPES = {
-    ".html": "text/html",
-    ".css": "text/css",
-    ".js": "application/javascript",
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".gif": "image/gif",
-    ".txt": "text/plain",
-}
 
-server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-server_sock.bind((HOST, PORT))
-server_sock.listen()
+def receive_request(client_sock):
+    data = b""
+    while b"\r\n\r\n" not in data:
+        chunk = client_sock.recv(BUFFER_SIZE)
+        if not chunk:
+            break
+        data += chunk
+    return data
 
-print(f"Listening on {HOST}:{PORT}")
 
-while True:
-    client_sock, client_addr = server_sock.accept()
-    print(f"Connection from {client_addr}")
+def parse_request(raw_data):
+    request_line = raw_data.split(b"\r\n")[0].decode()
+    method, path, version = request_line.split(" ")
+    return method, path, version
 
+
+def resolve_file_path(url_path):
+    if url_path == "/":
+        url_path = DEFAULT_PAGE
+    file_path = os.path.join(STATIC_DIR, url_path.lstrip("/"))
+    return os.path.realpath(file_path)
+
+
+def is_path_safe(file_path):
+    return file_path.startswith(STATIC_DIR)
+
+
+def get_content_type(file_path):
+    ext = os.path.splitext(file_path)[1].lower()
+    return CONTENT_TYPES.get(ext, DEFAULT_CONTENT_TYPE)
+
+
+def build_response(status_code, status_text, body, content_type="text/html"):
+    header = (
+        f"{HTTP_VERSION} {status_code} {status_text}\r\n"
+        f"Content-Type: {content_type}\r\n"
+        f"Content-Length: {len(body)}\r\n"
+        f"\r\n"
+    )
+    return header.encode() + body
+
+
+def build_error_response(status_code, status_text):
+    body = b""
+    header = (
+        f"{HTTP_VERSION} {status_code} {status_text}\r\n"
+        f"Content-Length: 0\r\n"
+        f"\r\n"
+    )
+    return header.encode() + body
+
+
+def serve_file(file_path):
+    with open(file_path, "rb") as f:
+        body = f.read()
+    content_type = get_content_type(file_path)
+    return build_response(200, "OK", body, content_type)
+
+
+def handle_client(client_sock):
     with client_sock:
-        data = b""
-        while b"\r\n\r\n" not in data:
-            chunk = client_sock.recv(BUFFER_SIZE)
-            if not chunk:
-                break
-            data += chunk
+        raw_data = receive_request(client_sock)
+        if not raw_data:
+            return
 
-        if not data:
-            continue
-
-        request_line = data.split(b"\r\n")[0].decode()
-        method, path, version = request_line.split(" ")
+        method, path, version = parse_request(raw_data)
         print(f"{method} {path} {version}")
 
         if method != "GET":
-            response = f"HTTP/1.0 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n"
-            client_sock.sendall(response.encode())
-            continue
+            client_sock.sendall(build_error_response(405, "Method Not Allowed"))
+            return
 
-        if path == "/":
-            path = "/index.html"
+        file_path = resolve_file_path(path)
 
-        file_path = os.path.join(STATIC_DIR, path.lstrip("/"))
-
-        # Prevent directory traversal
-        file_path = os.path.realpath(file_path)
-        if not file_path.startswith(STATIC_DIR):
-            response = "HTTP/1.0 403 Forbidden\r\nContent-Length: 0\r\n\r\n"
-            client_sock.sendall(response.encode())
-            continue
+        if not is_path_safe(file_path):
+            client_sock.sendall(build_error_response(403, "Forbidden"))
+            return
 
         if os.path.isfile(file_path):
-            with open(file_path, "rb") as f:
-                body = f.read()
-
-            ext = os.path.splitext(file_path)[1].lower()
-            content_type = CONTENT_TYPES.get(ext, "application/octet-stream")
-
-            header = (
-                f"HTTP/1.0 200 OK\r\n"
-                f"Content-Type: {content_type}\r\n"
-                f"Content-Length: {len(body)}\r\n"
-                f"\r\n"
-            )
-            client_sock.sendall(header.encode() + body)
+            client_sock.sendall(serve_file(file_path))
         else:
             body = b"<h1>404 Not Found</h1>"
-            header = (
-                f"HTTP/1.0 404 Not Found\r\n"
-                f"Content-Type: text/html\r\n"
-                f"Content-Length: {len(body)}\r\n"
-                f"\r\n"
-            )
-            client_sock.sendall(header.encode() + body)
+            client_sock.sendall(build_response(404, "Not Found", body))
+
+
+def create_server_socket():
+    server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server_sock.bind((HOST, PORT))
+    server_sock.listen()
+    return server_sock
+
+
+def run_server():
+    server_sock = create_server_socket()
+    print(f"Listening on {HOST}:{PORT}")
+
+    try:
+        while True:
+            client_sock, client_addr = server_sock.accept()
+            print(f"Connection from {client_addr}")
+            handle_client(client_sock)
+    finally:
+        server_sock.close()
+
+
+if __name__ == "__main__":
+    run_server()
