@@ -1,9 +1,11 @@
 import os
 import socket
+from concurrent.futures import ThreadPoolExecutor
 
 from config import (
     ALLOWED_SUBDIRS,
     BUFFER_SIZE,
+    CLIENT_TIMEOUT_SECONDS,
     CONTENT_TYPES,
     DEFAULT_CONTENT_TYPE,
     DEFAULT_PAGE,
@@ -11,6 +13,7 @@ from config import (
     HTTP_VERSION,
     PORT,
     STATIC_DIR,
+    THREAD_POOL_SIZE,
 )
 
 
@@ -87,14 +90,20 @@ def serve_file(file_path):
     return build_response(200, "OK", body, content_type)
 
 
-def handle_client(client_sock):
+def handle_client(client_sock, client_addr):
     with client_sock:
-        raw_data = receive_request(client_sock)
+        client_sock.settimeout(CLIENT_TIMEOUT_SECONDS)
+        try:
+            raw_data = receive_request(client_sock)
+        except socket.timeout:
+            print(f"Timeout receiving from {client_addr}")
+            return
+
         if not raw_data:
             return
 
         method, path, version = parse_request(raw_data)
-        print(f"{method} {path} {version}")
+        print(f"{client_addr} - {method} {path} {version}")
 
         if method != "GET":
             client_sock.sendall(build_error_response(405, "Method Not Allowed"))
@@ -131,15 +140,16 @@ def create_server_socket():
 
 def run_server():
     server_sock = create_server_socket()
-    print(f"Listening on {HOST}:{PORT}")
+    print(f"Listening on {HOST}:{PORT} with {THREAD_POOL_SIZE} worker threads")
 
-    try:
-        while True:
-            client_sock, client_addr = server_sock.accept()
-            print(f"Connection from {client_addr}")
-            handle_client(client_sock)
-    finally:
-        server_sock.close()
+    with ThreadPoolExecutor(max_workers=THREAD_POOL_SIZE) as pool:
+        try:
+            while True:
+                client_sock, client_addr = server_sock.accept()
+                print(f"Connection from {client_addr}")
+                pool.submit(handle_client, client_sock, client_addr)
+        finally:
+            server_sock.close()
 
 
 if __name__ == "__main__":

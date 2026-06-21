@@ -19,3 +19,6 @@ CONTENT_TYPES = {
 DEFAULT_CONTENT_TYPE = "application/octet-stream"
 
 ALLOWED_SUBDIRS = {"css", "js", "images"}
+
+THREAD_POOL_SIZE = 10
+CLIENT_TIMEOUT_SECONDS = 5
