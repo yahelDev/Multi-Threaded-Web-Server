@@ -2,6 +2,7 @@ import os
 import socket
 
 from config import (
+    ALLOWED_SUBDIRS,
     BUFFER_SIZE,
     CONTENT_TYPES,
     DEFAULT_CONTENT_TYPE,
@@ -29,6 +30,10 @@ def parse_request(raw_data):
     return method, path, version
 
 
+def has_traversal(url_path):
+    return ".." in url_path
+
+
 def resolve_file_path(url_path):
     if url_path == "/":
         url_path = DEFAULT_PAGE
@@ -37,7 +42,17 @@ def resolve_file_path(url_path):
 
 
 def is_path_safe(file_path):
-    return file_path.startswith(STATIC_DIR)
+    return file_path.startswith(os.path.realpath(STATIC_DIR))
+
+
+def is_in_allowed_subdir(file_path):
+    real_static = os.path.realpath(STATIC_DIR)
+    rel_path = os.path.relpath(file_path, real_static)
+    # Files directly in the static root (e.g. index.html) are allowed
+    if os.sep not in rel_path:
+        return True
+    top_dir = rel_path.split(os.sep)[0]
+    return top_dir in ALLOWED_SUBDIRS
 
 
 def get_content_type(file_path):
@@ -85,9 +100,17 @@ def handle_client(client_sock):
             client_sock.sendall(build_error_response(405, "Method Not Allowed"))
             return
 
+        if has_traversal(path):
+            client_sock.sendall(build_error_response(400, "Bad Request"))
+            return
+
         file_path = resolve_file_path(path)
 
         if not is_path_safe(file_path):
+            client_sock.sendall(build_error_response(403, "Forbidden"))
+            return
+
+        if not is_in_allowed_subdir(file_path):
             client_sock.sendall(build_error_response(403, "Forbidden"))
             return
 

@@ -17,3 +17,5 @@ CONTENT_TYPES = {
     ".txt": "text/plain",
 }
 DEFAULT_CONTENT_TYPE = "application/octet-stream"
+
+ALLOWED_SUBDIRS = {"css", "js", "images"}
