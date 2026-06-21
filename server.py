@@ -17,5 +17,18 @@ while True:
     print(f"Connection from {client_addr}")
 
     with client_sock:
-        data = client_sock.recv(BUFFER_SIZE)
+        data = b""
+        while b"\r\n\r\n" not in data:
+            chunk = client_sock.recv(BUFFER_SIZE)
+            if not chunk:
+                break
+            data += chunk
+
         print(f"Raw bytes received: {data}")
+
+        # Parse the HTTP request line
+        request_line = data.split(b"\r\n")[0].decode()
+        method, path, version = request_line.split(" ")
+        print(f"Method: {method}")
+        print(f"Path: {path}")
+        print(f"Version: {version}")
