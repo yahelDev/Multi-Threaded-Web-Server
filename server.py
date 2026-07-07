@@ -11,15 +11,22 @@ from config import (
     DEFAULT_PAGE,
     HOST,
     HTTP_VERSION,
+    MAX_REQUEST_HEADER_SIZE,
     PORT,
     STATIC_DIR,
     THREAD_POOL_SIZE,
 )
 
 
+class BadRequestError(Exception):
+    pass
+
+
 def receive_request(client_sock):
     data = b""
     while b"\r\n\r\n" not in data:
+        if len(data) > MAX_REQUEST_HEADER_SIZE:
+            raise BadRequestError("Request header too large")
         chunk = client_sock.recv(BUFFER_SIZE)
         if not chunk:
             break
@@ -28,8 +35,11 @@ def receive_request(client_sock):
 
 
 def parse_request(raw_data):
-    request_line = raw_data.split(b"\r\n")[0].decode()
-    method, path, version = request_line.split(" ")
+    try:
+        request_line = raw_data.split(b"\r\n")[0].decode("ascii")
+        method, path, version = request_line.split(" ")
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise BadRequestError("Malformed request line") from exc
     return method, path, version
 
 
@@ -45,7 +55,8 @@ def resolve_file_path(url_path):
 
 
 def is_path_safe(file_path):
-    return file_path.startswith(os.path.realpath(STATIC_DIR))
+    real_static = os.path.realpath(STATIC_DIR)
+    return file_path == real_static or file_path.startswith(real_static + os.sep)
 
 
 def is_in_allowed_subdir(file_path):
@@ -98,11 +109,23 @@ def handle_client(client_sock, client_addr):
         except socket.timeout:
             print(f"Timeout receiving from {client_addr}")
             return
+        except BadRequestError:
+            client_sock.sendall(build_error_response(400, "Bad Request"))
+            return
 
         if not raw_data:
             return
 
-        method, path, version = parse_request(raw_data)
+        if b"\r\n\r\n" not in raw_data:
+            client_sock.sendall(build_error_response(400, "Bad Request"))
+            return
+
+        try:
+            method, path, version = parse_request(raw_data)
+        except BadRequestError:
+            client_sock.sendall(build_error_response(400, "Bad Request"))
+            return
+
         print(f"{client_addr} - {method} {path} {version}")
 
         if method != "GET":
