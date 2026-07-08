@@ -17,7 +17,6 @@ from config import (
     THREAD_POOL_SIZE,
 )
 
-
 class BadRequestError(Exception):
     pass
 
@@ -62,7 +61,7 @@ def is_path_safe(file_path):
 def is_in_allowed_subdir(file_path):
     real_static = os.path.realpath(STATIC_DIR)
     rel_path = os.path.relpath(file_path, real_static)
-    # Files directly in the static root (e.g. index.html) are allowed
+    # Files directly in the static root (index.html) are allowed
     if os.sep not in rel_path:
         return True
     top_dir = rel_path.split(os.sep)[0]
@@ -75,6 +74,7 @@ def get_content_type(file_path):
 
 
 def build_response(status_code, status_text, body, content_type="text/html"):
+    # Build the HTTP response header and concatenate it with the body
     header = (
         f"{HTTP_VERSION} {status_code} {status_text}\r\n"
         f"Content-Type: {content_type}\r\n"
