@@ -1,8 +1,9 @@
 import os
 
 HOST = "0.0.0.0"
-PORT = 8080
+PORT = 8081
 BUFFER_SIZE = 4096
+MAX_REQUEST_HEADER_SIZE = 8192
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 DEFAULT_PAGE = "/index.html"
 HTTP_VERSION = "HTTP/1.0"

@@ -1,0 +1,23 @@
+# Step 0: Start the server to listen for incoming connections and initialize the Thread Pool.
+python3 server.py
+
+# Step 1: Send a valid GET request to retrieve a static file, expecting a 200 OK with proper headers and content.
+curl -v http://localhost:8081/css/style.css
+
+# Step 2.1: Open a connection without sending data to simulate a slow client and test concurrency.
+nc localhost 8081
+
+# Step 2.2: Send a GET request from a second client while the first is hanging, expecting an immediate 200 OK.
+curl -v http://localhost:8081/
+
+# Step 3: Request a non-existent file to verify the server correctly returns a 404 Not Found error.
+curl -v http://localhost:8081/images/fake_image.jpg
+
+# Step 4: Send a malformed HTTP request to verify the server catches the parsing error and returns a 400 Bad Request.
+(printf "JUST_ONE_WORD\r\n\r\n"; sleep 1) | nc localhost 8081
+
+# Step 5: Attempt a directory traversal attack using '../' to verify the server blocks it with a 400 Bad Request.
+curl -v --path-as-is http://localhost:8081/../../etc/passwd
+
+# Step 6: Send a HEAD request to verify the server strictly enforces GET requests and returns a 405 Method Not Allowed.
+curl -I http://localhost:8081/
